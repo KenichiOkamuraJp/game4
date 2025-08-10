@@ -63,14 +63,19 @@
         <!-- 勝利画面 -->
         <VictoryScreen 
           v-else-if="gameState === 'victory'"
+          :character="currentCharacter"
           :reward="lastReward"
+          :game-stats="gameStats"
           @return-to-town="returnToTown"
         />
         
         <!-- ゲームオーバー画面 -->
         <GameOverScreen 
           v-else-if="gameState === 'game-over'"
+          :character="currentCharacter"
+          :game-stats="gameStats"
           @restart="resetGame"
+          @return-to-town="returnToTown"
         />
       </div>
     </div>
@@ -112,6 +117,17 @@ export default {
     const currentCharacter = ref(null)
     const currentEnemy = ref(null)
     const lastReward = ref({ gold: 0, exp: 0 })
+    
+    // ゲーム統計
+    const gameStats = reactive({
+      startTime: Date.now(),
+      reachedFloor: 1,
+      defeatedEnemies: 0,
+      usedPotions: 0,
+      openedChests: 0,
+      lastEnemy: null,
+      deathCause: 'combat'
+    })
     
     // ゲーム進行状況
     const gameProgress = reactive({
@@ -245,6 +261,11 @@ export default {
     // ゲーム状態のハンドラー
     const enterDungeon = () => {
       gameState.value = 'playing'
+      gameStats.startTime = Date.now()
+      gameStats.reachedFloor = 1
+      gameStats.defeatedEnemies = 0
+      gameStats.usedPotions = 0
+      gameStats.openedChests = 0
       saveGameProgress()
     }
     
@@ -258,16 +279,19 @@ export default {
     
     const startCombat = (enemy) => {
       currentEnemy.value = enemy
+      gameStats.lastEnemy = enemy.name
       gameState.value = 'combat'
     }
     
     const endCombat = (result) => {
       if (result.victory) {
+        gameStats.defeatedEnemies++
         gameState.value = 'playing'
       } else if (result.fled) {
         gameState.value = 'playing'
       } else {
         // プレイヤー敗北
+        gameStats.deathCause = 'combat'
         gameState.value = 'game-over'
       }
       currentEnemy.value = null
@@ -302,6 +326,12 @@ export default {
     
     const onGameProgressUpdated = (progress) => {
       Object.assign(gameProgress, progress)
+      
+      // ゲーム統計を更新
+      if (progress.currentFloor > gameStats.reachedFloor) {
+        gameStats.reachedFloor = progress.currentFloor
+      }
+      
       saveGameProgress()
     }
     
@@ -340,6 +370,7 @@ export default {
       currentEnemy,
       lastReward,
       gameProgress,
+      gameStats,
       onAuthenticated,
       onCharacterCreated,
       onCharacterSelected,
@@ -359,14 +390,6 @@ export default {
 </script>
 
 <style scoped>
-body {
-  font-family: 'Courier New', monospace;
-  background-color: #000;
-  color: #00ff00;
-  margin: 0;
-  padding: 20px;
-}
-
 .game-container {
   max-width: 800px;
   margin: 0 auto;
@@ -374,6 +397,7 @@ body {
   border: 2px solid #00ff00;
   padding: 20px;
   border-radius: 10px;
+  animation: fadeIn 0.5s ease-out;
 }
 
 .title {
@@ -399,6 +423,17 @@ body {
   0% { opacity: 1; }
   50% { opacity: 0.5; }
   100% { opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .auth-screen {
