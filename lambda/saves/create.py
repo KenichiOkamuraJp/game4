@@ -13,24 +13,49 @@ def lambda_handler(event, context):
     セーブデータ作成 Lambda 関数
     """
     
-    # CORS headers
+    # CORS headers（強化版）
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Max-Age': '86400'
     }
+    
+    print(f"Received event: {json.dumps(event)}")
     
     try:
         # CORS preflight
         if event.get('httpMethod') == 'OPTIONS':
+            print("Handling CORS preflight request")
             return {
                 'statusCode': 200,
                 'headers': cors_headers,
                 'body': ''
             }
         
+        # HTTPメソッドをチェック
+        http_method = event.get('httpMethod')
+        print(f"HTTP Method: {http_method}")
+        
+        if http_method != 'POST':
+            return {
+                'statusCode': 405,
+                'headers': cors_headers,
+                'body': json.dumps({'error': 'Method Not Allowed'}, ensure_ascii=False)
+            }
+        
         # ユーザーIDの取得（Cognito認証から）
-        user_id = event['requestContext']['authorizer']['claims']['sub']
+        try:
+            user_id = event['requestContext']['authorizer']['claims']['sub']
+            print(f"User ID: {user_id}")
+        except (KeyError, TypeError) as e:
+            print(f"Authentication error: {e}")
+            return {
+                'statusCode': 401,
+                'headers': cors_headers,
+                'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+            }
+        
         if not user_id:
             return {
                 'statusCode': 401,
@@ -41,7 +66,9 @@ def lambda_handler(event, context):
         # リクエストボディの解析
         try:
             save_data = json.loads(event['body'])
-        except (json.JSONDecodeError, TypeError):
+            print(f"Save data: {save_data}")
+        except (json.JSONDecodeError, TypeError) as e:
+            print(f"JSON decode error: {e}")
             return {
                 'statusCode': 400,
                 'headers': cors_headers,
@@ -77,13 +104,18 @@ def lambda_handler(event, context):
                 '2': {'x': 1, 'y': 1},
                 '3': {'x': 1, 'y': 1}
             }),
+            'messages': save_data.get('messages', []),
             'createdAt': now,
             'updatedAt': now
         }
         
+        print(f"Creating game save: {game_save}")
+        
         # DynamoDBに保存
         table = dynamodb.Table(os.environ['GAME_SAVES_TABLE'])
         table.put_item(Item=game_save)
+        
+        print("Game save created successfully")
         
         return {
             'statusCode': 200,

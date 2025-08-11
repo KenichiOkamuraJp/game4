@@ -19,24 +19,49 @@ def lambda_handler(event, context):
     キャラクター一覧取得 Lambda 関数
     """
     
-    # CORS headers
+    # CORS headers（強化版）
     cors_headers = {
         'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
-        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+        'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+        'Access-Control-Max-Age': '86400'
     }
     
+    print(f"Received event: {json.dumps(event)}")
+    
     try:
-        # CORS preflight
+        # CORS preflight（必ず最初に処理）
         if event.get('httpMethod') == 'OPTIONS':
+            print("Handling CORS preflight request")
             return {
                 'statusCode': 200,
                 'headers': cors_headers,
                 'body': ''
             }
         
+        # HTTPメソッドをチェック
+        http_method = event.get('httpMethod')
+        print(f"HTTP Method: {http_method}")
+        
+        if http_method != 'GET':
+            return {
+                'statusCode': 405,
+                'headers': cors_headers,
+                'body': json.dumps({'error': 'Method Not Allowed'}, ensure_ascii=False)
+            }
+        
         # ユーザーIDの取得（Cognito認証から）
-        user_id = event['requestContext']['authorizer']['claims']['sub']
+        try:
+            user_id = event['requestContext']['authorizer']['claims']['sub']
+            print(f"User ID: {user_id}")
+        except (KeyError, TypeError) as e:
+            print(f"Authentication error: {e}")
+            return {
+                'statusCode': 401,
+                'headers': cors_headers,
+                'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+            }
+        
         if not user_id:
             return {
                 'statusCode': 401,
@@ -46,6 +71,7 @@ def lambda_handler(event, context):
         
         # ユーザーのキャラクター一覧を取得
         table = dynamodb.Table(os.environ['CHARACTERS_TABLE'])
+        print(f"Querying table: {os.environ['CHARACTERS_TABLE']}")
         
         response = table.query(
             KeyConditionExpression='userId = :userId',
@@ -56,6 +82,7 @@ def lambda_handler(event, context):
         )
         
         characters = response.get('Items', [])
+        print(f"Found {len(characters)} characters")
         
         return {
             'statusCode': 200,
