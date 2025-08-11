@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Vue.js Dungeon RPG Application Infrastructure - Python Lambda Version'
+Description: 'Vue.js Dungeon RPG Application Infrastructure - Python Lambda Version with Cognito Authentication'
 
 Parameters:
   ProjectName:
@@ -82,6 +82,7 @@ Resources:
         - ALLOW_ADMIN_USER_PASSWORD_AUTH
         - ALLOW_USER_PASSWORD_AUTH
         - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
       SupportedIdentityProviders:
         - COGNITO
 
@@ -191,12 +192,23 @@ Resources:
     Type: AWS::ApiGateway::RestApi
     Properties:
       Name: !Sub '${ProjectName}-api'
-      Description: API for Vue.js Dungeon RPG (Python Lambda)
+      Description: API for Vue.js Dungeon RPG (Python Lambda) with Cognito Authentication
       EndpointConfiguration:
         Types:
           - REGIONAL
 
-  # Lambda Functions - Python??
+  # ? NEW: Cognito User Pool Authorizer
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: !Sub '${ProjectName}-cognito-authorizer'
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      RestApiId: !Ref ApiGateway
+      ProviderARNs:
+        - !GetAtt UserPool.Arn
+
+  # Lambda Functions - Python (with enhanced CORS headers)
   CharactersCreateFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -208,15 +220,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Characters create - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Characters create - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           CHARACTERS_TABLE: !Ref CharactersTable
@@ -233,15 +259,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Characters list - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps([])  # Empty list for now
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           CHARACTERS_TABLE: !Ref CharactersTable
@@ -258,15 +298,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Characters update - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Characters update - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           CHARACTERS_TABLE: !Ref CharactersTable
@@ -283,15 +337,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Characters delete - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Characters delete - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           CHARACTERS_TABLE: !Ref CharactersTable
@@ -309,15 +377,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Saves create - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Saves create - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           GAME_SAVES_TABLE: !Ref SavesTable
@@ -334,15 +416,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Saves get - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Saves get - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           GAME_SAVES_TABLE: !Ref SavesTable
@@ -359,15 +455,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Saves update - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Saves update - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           GAME_SAVES_TABLE: !Ref SavesTable
@@ -384,15 +494,29 @@ Resources:
         ZipFile: |
           import json
           def lambda_handler(event, context):
-              return {
-                  'statusCode': 200,
-                  'headers': {
-                      'Access-Control-Allow-Origin': '*',
-                      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-                  },
-                  'body': json.dumps({'message': 'Saves delete - placeholder'})
+              cors_headers = {
+                  'Access-Control-Allow-Origin': '*',
+                  'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                  'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent',
+                  'Access-Control-Max-Age': '86400'
               }
+              
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': cors_headers, 'body': ''}
+              
+              try:
+                  user_id = event['requestContext']['authorizer']['claims']['sub']
+                  return {
+                      'statusCode': 200,
+                      'headers': cors_headers,
+                      'body': json.dumps({'message': 'Saves delete - placeholder', 'userId': user_id})
+                  }
+              except (KeyError, TypeError):
+                  return {
+                      'statusCode': 401,
+                      'headers': cors_headers,
+                      'body': json.dumps({'error': '認証が必要です'}, ensure_ascii=False)
+                  }
       Environment:
         Variables:
           GAME_SAVES_TABLE: !Ref SavesTable
@@ -427,30 +551,31 @@ Resources:
       ParentId: !Ref SavesResource
       PathPart: '{id}'
 
-  # 1. 中間リソース（固定パス）
+  # Saves character resource (/saves/character)
   SavesCharacterResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref ApiGateway
-      ParentId: !Ref SavesResource      # /saves
-      PathPart: character               # /saves/character
+      ParentId: !Ref SavesResource
+      PathPart: character
 
-  # 2. 変数パス
+  # Saves character ID resource (/saves/character/{characterId})
   SavesCharacterIdResource:
     Type: AWS::ApiGateway::Resource  
     Properties:
       RestApiId: !Ref ApiGateway
-      ParentId: !Ref SavesCharacterResource  # /saves/character
-      PathPart: '{characterId}'             # /saves/character/{characterId}
+      ParentId: !Ref SavesCharacterResource
+      PathPart: '{characterId}'
 
-  # Characters Methods
+  # ? UPDATED: Characters Methods with Cognito Authorization
   CharactersMethodPost:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref CharactersResource
       HttpMethod: POST
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -462,7 +587,8 @@ Resources:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref CharactersResource
       HttpMethod: GET
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -474,7 +600,8 @@ Resources:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref CharactersIdResource
       HttpMethod: PUT
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -486,12 +613,14 @@ Resources:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref CharactersIdResource
       HttpMethod: DELETE
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CharactersDeleteFunction.Arn}/invocations'
 
+  # CORS OPTIONS Methods (unchanged - no auth required)
   CharactersMethodOptions:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -506,7 +635,8 @@ Resources:
             ResponseParameters:
               method.response.header.Access-Control-Allow-Origin: "'*'"
               method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
         RequestTemplates:
           application/json: '{"statusCode": 200}'
       MethodResponses:
@@ -515,15 +645,43 @@ Resources:
             method.response.header.Access-Control-Allow-Origin: true
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Max-Age: true
 
-  # Saves Methods
+  CharactersIdMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref CharactersIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Max-Age: true
+
+  # ? UPDATED: Saves Methods with Cognito Authorization
   SavesMethodPost:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref SavesResource
       HttpMethod: POST
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -535,7 +693,8 @@ Resources:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref SavesCharacterIdResource
       HttpMethod: GET
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -547,7 +706,8 @@ Resources:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref SavesCharacterIdResource
       HttpMethod: PUT
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -559,12 +719,14 @@ Resources:
       RestApiId: !Ref ApiGateway
       ResourceId: !Ref SavesIdResource
       HttpMethod: DELETE
-      AuthorizationType: AWS_IAM
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SavesDeleteFunction.Arn}/invocations'
 
+  # Additional CORS OPTIONS Methods (unchanged)
   SavesMethodOptions:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -579,7 +741,8 @@ Resources:
             ResponseParameters:
               method.response.header.Access-Control-Allow-Origin: "'*'"
               method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
         RequestTemplates:
           application/json: '{"statusCode": 200}'
       MethodResponses:
@@ -588,6 +751,85 @@ Resources:
             method.response.header.Access-Control-Allow-Origin: true
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Max-Age: true
+
+  SavesCharacterMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SavesCharacterResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Max-Age: true
+
+  SavesCharacterIdMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SavesCharacterIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Max-Age: true
+
+  SavesIdMethodOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref SavesIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Amz-User-Agent'"
+              method.response.header.Access-Control-Max-Age: "'86400'"
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Max-Age: true
 
   # Lambda Permissions
   CharactersCreatePermission:
@@ -663,11 +905,15 @@ Resources:
       - CharactersIdMethodPut
       - CharactersIdMethodDelete
       - CharactersMethodOptions
+      - CharactersIdMethodOptions
       - SavesMethodPost
       - SavesCharacterIdMethodGet
       - SavesCharacterIdMethodPut
       - SavesIdMethodDelete
       - SavesMethodOptions
+      - SavesCharacterMethodOptions
+      - SavesCharacterIdMethodOptions
+      - SavesIdMethodOptions
     Properties:
       RestApiId: !Ref ApiGateway
       StageName: prod
@@ -708,3 +954,9 @@ Outputs:
     Value: !Ref SavesTable
     Export:
       Name: !Sub '${ProjectName}-SavesTable'
+
+  CognitoAuthorizerArn:
+    Description: Cognito User Pool Authorizer ARN
+    Value: !Ref CognitoAuthorizer
+    Export:
+      Name: !Sub '${ProjectName}-CognitoAuthorizer'

@@ -1,0 +1,19 @@
+{
+    "description":  "CORS preflight request",
+    "event":  {
+                  "requestContext":  {
+                                         "resourcePath":  "/characters",
+                                         "httpMethod":  "OPTIONS"
+                                     },
+                  "isBase64Encoded":  false,
+                  "path":  "/characters",
+                  "httpMethod":  "OPTIONS",
+                  "resource":  "/characters",
+                  "body":  null,
+                  "headers":  {
+                                  "Access-Control-Request-Method":  "GET",
+                                  "Access-Control-Request-Headers":  "authorization,content-type",
+                                  "Origin":  "http://localhost:3000"
+                              }
+              }
+}

@@ -1,0 +1,17 @@
+{
+    "description":  "Get characters list without authentication (should fail)",
+    "event":  {
+                  "requestContext":  {
+                                         "resourcePath":  "/characters",
+                                         "httpMethod":  "GET"
+                                     },
+                  "isBase64Encoded":  false,
+                  "path":  "/characters",
+                  "httpMethod":  "GET",
+                  "resource":  "/characters",
+                  "body":  null,
+                  "headers":  {
+
+                              }
+              }
+}
