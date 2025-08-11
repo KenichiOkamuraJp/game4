@@ -10,10 +10,25 @@ class CharactersAPI {
   }
 
   /**
+   * 認証状態をチェック
+   */
+  async ensureAuthenticated() {
+    if (!authService.isAuthenticated()) {
+      try {
+        await authService.getCurrentUser()
+      } catch (error) {
+        throw new Error('認証が必要です。ログインしてください。')
+      }
+    }
+  }
+
+  /**
    * キャラクター一覧を取得
    */
   async list() {
     try {
+      await this.ensureAuthenticated()
+      
       const response = await apiRequest(`${this.baseURL}`, {
         method: 'GET',
         headers: await authService.getIAMHeaders()
@@ -22,6 +37,10 @@ class CharactersAPI {
       return response
     } catch (error) {
       console.error('Failed to fetch characters:', error)
+      
+      if (error.message.includes('認証')) {
+        throw error
+      }
       throw new Error('キャラクター一覧の取得に失敗しました')
     }
   }
@@ -31,6 +50,8 @@ class CharactersAPI {
    */
   async create(characterData) {
     try {
+      await this.ensureAuthenticated()
+      
       // バリデーション
       if (!characterData.name || !characterData.name.trim()) {
         throw new Error('キャラクター名は必須です')
@@ -57,7 +78,7 @@ class CharactersAPI {
       return response
     } catch (error) {
       console.error('Failed to create character:', error)
-      if (error.message.includes('キャラクター名')) {
+      if (error.message.includes('キャラクター名') || error.message.includes('認証')) {
         throw error
       }
       throw new Error('キャラクターの作成に失敗しました')
@@ -69,6 +90,8 @@ class CharactersAPI {
    */
   async update(characterId, characterData) {
     try {
+      await this.ensureAuthenticated()
+      
       if (!characterId) {
         throw new Error('キャラクターIDが必要です')
       }
@@ -85,6 +108,9 @@ class CharactersAPI {
       return response
     } catch (error) {
       console.error('Failed to update character:', error)
+      if (error.message.includes('認証')) {
+        throw error
+      }
       throw new Error('キャラクターの更新に失敗しました')
     }
   }
@@ -94,6 +120,8 @@ class CharactersAPI {
    */
   async delete(characterId) {
     try {
+      await this.ensureAuthenticated()
+      
       if (!characterId) {
         throw new Error('キャラクターIDが必要です')
       }
@@ -106,6 +134,9 @@ class CharactersAPI {
       return true
     } catch (error) {
       console.error('Failed to delete character:', error)
+      if (error.message.includes('認証')) {
+        throw error
+      }
       throw new Error('キャラクターの削除に失敗しました')
     }
   }

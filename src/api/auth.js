@@ -18,6 +18,7 @@ class AuthService {
   constructor() {
     this.currentUser = null
     this.accessToken = null
+    this.idToken = null
   }
 
   /**
@@ -101,6 +102,7 @@ class AuthService {
         onSuccess: (result) => {
           this.currentUser = cognitoUser
           this.accessToken = result.getAccessToken().getJwtToken()
+          this.idToken = result.getIdToken().getJwtToken()
           
           // ユーザー情報を取得
           cognitoUser.getUserAttributes((err, attributes) => {
@@ -112,7 +114,7 @@ class AuthService {
               username: cognitoUser.getUsername(),
               email: email,
               accessToken: this.accessToken,
-              idToken: result.getIdToken().getJwtToken(),
+              idToken: this.idToken,
               refreshToken: result.getRefreshToken().getToken(),
               attributes: attributes || []
             }
@@ -145,6 +147,7 @@ class AuthService {
       
       this.currentUser = null
       this.accessToken = null
+      this.idToken = null
       
       // ローカルストレージをクリア
       localStorage.removeItem('dungeon_rpg_user')
@@ -160,10 +163,21 @@ class AuthService {
     return new Promise((resolve, reject) => {
       // まずローカルストレージから確認
       const savedUser = this.getSavedUserSession()
-      if (savedUser) {
+      if (savedUser && savedUser.accessToken) {
         this.accessToken = savedUser.accessToken
-        resolve(savedUser)
-        return
+        this.idToken = savedUser.idToken
+        
+        // 保存されたトークンが有効かどうかチェック
+        try {
+          // JWTトークンの有効期限をチェック（簡易版）
+          const tokenPayload = this.parseJWT(savedUser.accessToken)
+          if (tokenPayload && tokenPayload.exp * 1000 > Date.now()) {
+            resolve(savedUser)
+            return
+          }
+        } catch (error) {
+          console.warn('Invalid saved token:', error)
+        }
       }
 
       const cognitoUser = userPool.getCurrentUser()
@@ -185,6 +199,7 @@ class AuthService {
 
         this.currentUser = cognitoUser
         this.accessToken = session.getAccessToken().getJwtToken()
+        this.idToken = session.getIdToken().getJwtToken()
 
         cognitoUser.getUserAttributes((err, attributes) => {
           if (err) {
@@ -195,7 +210,7 @@ class AuthService {
           const userInfo = {
             username: cognitoUser.getUsername(),
             accessToken: this.accessToken,
-            idToken: session.getIdToken().getJwtToken(),
+            idToken: this.idToken,
             refreshToken: session.getRefreshToken().getToken(),
             attributes: attributes || []
           }
@@ -208,6 +223,22 @@ class AuthService {
   }
 
   /**
+   * JWTトークンをパース
+   */
+  parseJWT(token) {
+    try {
+      const base64Url = token.split('.')[1]
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
+      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
+      }).join(''))
+      return JSON.parse(jsonPayload)
+    } catch (error) {
+      return null
+    }
+  }
+
+  /**
    * アクセストークンを取得
    */
   getAccessToken() {
@@ -215,10 +246,26 @@ class AuthService {
   }
 
   /**
+   * 認証状態をチェック
+   */
+  isAuthenticated() {
+    if (!this.accessToken) {
+      return false
+    }
+    
+    try {
+      const tokenPayload = this.parseJWT(this.accessToken)
+      return tokenPayload && tokenPayload.exp * 1000 > Date.now()
+    } catch {
+      return false
+    }
+  }
+
+  /**
    * 認証済みAPIリクエストヘッダーを取得
    */
-  getAuthHeaders() {
-    if (!this.accessToken) {
+  async getAuthHeaders() {
+    if (!this.isAuthenticated()) {
       throw new Error('Not authenticated')
     }
 
@@ -229,31 +276,23 @@ class AuthService {
   }
 
   /**
-   * AWS Signature Version 4認証ヘッダーを生成
-   * （API Gateway IAM認証用）
+   * AWS IAM認証ヘッダーを生成
    */
   async getIAMHeaders() {
-    if (!this.currentUser) {
+    if (!this.isAuthenticated()) {
       throw new Error('Not authenticated')
     }
 
-    return new Promise((resolve, reject) => {
-      this.currentUser.getSession((err, session) => {
-        if (err) {
-          reject(err)
-          return
-        }
+  // 現在のユーザーセッションを確認
+    const savedUser = this.getSavedUserSession()
+    if (!savedUser || !savedUser.idToken) {
+      throw new Error('Authentication session expired')
+    }
 
-        // AWS SDK for JavaScript v3を使用してIAM認証ヘッダーを生成
-        // ここでは簡略化して、IDトークンをAuthorizationヘッダーに設定
-        const headers = {
-          'Authorization': session.getIdToken().getJwtToken(),
-          'Content-Type': 'application/json'
-        }
-
-        resolve(headers)
-      })
-    })
+    return {
+      'Authorization': savedUser.idToken,
+      'Content-Type': 'application/json'
+    }
   }
 
   /**
@@ -274,6 +313,7 @@ class AuthService {
 
         if (session.isValid()) {
           this.accessToken = session.getAccessToken().getJwtToken()
+          this.idToken = session.getIdToken().getJwtToken()
           resolve(session)
         } else {
           reject(new Error('Session is not valid'))
@@ -291,13 +331,13 @@ class AuthService {
         username: userInfo.username,
         email: userInfo.email,
         accessToken: userInfo.accessToken,
+        idToken: userInfo.idToken,  // これを追加
         savedAt: Date.now()
       }))
     } catch (error) {
       console.warn('Failed to save user session:', error)
     }
   }
-
   /**
    * 保存されたユーザーセッションを取得
    */

@@ -1,89 +1,113 @@
 <template>
   <div id="app">
-    <div class="game-container">
-      <h1 class="title">🏰 ダンジョンクエスト 🏰</h1>
-      
-      <!-- ローディング画面 -->
-      <div v-if="loading" class="loading-screen">
-        <div class="loading-text">読み込み中...</div>
+    <!-- ローディング画面 -->
+    <div v-if="loading" class="loading-screen">
+      <div class="loading-content">
+        <div class="loading-spinner">⚔️</div>
+        <h2>ダンジョンRPG</h2>
+        <p>読み込み中...</p>
       </div>
-      
+    </div>
+
+    <!-- メインコンテンツ -->
+    <div v-else class="app-content">
       <!-- 認証画面 -->
-      <div v-else-if="!isAuthenticated" class="auth-screen">
-        <AuthComponent @authenticated="onAuthenticated" />
+      <AuthComponent 
+        v-if="currentScreen === 'auth'" 
+        @authenticated="handleAuthenticated"
+      />
+
+      <!-- キャラクター作成画面 -->
+      <CharacterCreation 
+        v-if="currentScreen === 'character-creation'"
+        @character-created="handleCharacterCreated"
+        @character-selected="handleCharacterSelected"
+      />
+
+      <!-- 町画面 -->
+      <TownScreen 
+        v-if="currentScreen === 'town'"
+        :character="selectedCharacter"
+        @enter-dungeon="handleEnterDungeon"
+        @enter-guild="handleEnterGuild"
+        @character-updated="handleCharacterUpdated"
+      />
+
+      <!-- ギルド画面 -->
+      <GuildScreen 
+        v-if="currentScreen === 'guild'"
+        :character="selectedCharacter"
+        @leave-guild="handleLeaveGuild"
+        @character-updated="handleCharacterUpdated"
+      />
+
+      <!-- ダンジョン画面 -->
+      <DungeonView 
+        v-if="currentScreen === 'dungeon'"
+        :character="selectedCharacter"
+        :game-progress="gameProgress"
+        @combat-start="handleCombatStart"
+        @victory="handleVictory"
+        @game-progress-updated="handleGameProgressUpdated"
+        @character-updated="handleCharacterUpdated"
+        @return-to-town="handleReturnToTown"
+      />
+
+      <!-- 戦闘画面 -->
+      <CombatScreen 
+        v-if="currentScreen === 'combat'"
+        :character="selectedCharacter"
+        :enemy="currentEnemy"
+        @combat-end="handleCombatEnd"
+        @character-updated="handleCharacterUpdated"
+      />
+
+      <!-- 勝利画面 -->
+      <VictoryScreen 
+        v-if="currentScreen === 'victory'"
+        :reward="victoryReward"
+        :character="selectedCharacter"
+        :game-stats="gameStats"
+        @return-to-town="handleReturnToTown"
+      />
+
+      <!-- ゲームオーバー画面 -->
+      <GameOverScreen 
+        v-if="currentScreen === 'game-over'"
+        :character="selectedCharacter"
+        :game-stats="gameStats"
+        @restart="handleRestart"
+        @return-to-town="handleReturnToTown"
+      />
+
+      <!-- エラーメッセージ -->
+      <div v-if="error" class="error-overlay">
+        <div class="error-content">
+          <h3>エラー</h3>
+          <p>{{ error }}</p>
+          <button @click="clearError" class="error-btn">閉じる</button>
+        </div>
       </div>
-      
-      <!-- ゲーム画面 -->
-      <div v-else>
-        <!-- キャラクター作成画面 -->
-        <CharacterCreation 
-          v-if="gameState === 'character-creation'" 
-          @character-created="onCharacterCreated"
-          @character-selected="onCharacterSelected"
-        />
-        
-        <!-- 町画面 -->
-        <TownScreen 
-          v-else-if="gameState === 'town'" 
-          :character="currentCharacter"
-          @enter-dungeon="enterDungeon"
-          @enter-guild="enterGuild"
-          @character-updated="onCharacterUpdated"
-        />
-        
-        <!-- ギルド画面 -->
-        <GuildScreen 
-          v-else-if="gameState === 'guild'"
-          :character="currentCharacter"
-          @leave-guild="leaveGuild"
-          @character-updated="onCharacterUpdated"
-        />
-        
-        <!-- ダンジョン探索画面 -->
-        <DungeonView 
-          v-else-if="gameState === 'playing'"
-          :character="currentCharacter"
-          :game-progress="gameProgress"
-          @combat-start="startCombat"
-          @victory="onVictory"
-          @game-progress-updated="onGameProgressUpdated"
-          @character-updated="onCharacterUpdated"
-          @return-to-town="returnToTown"
-        />
-        
-        <!-- 戦闘画面 -->
-        <CombatScreen 
-          v-else-if="gameState === 'combat'"
-          :character="currentCharacter"
-          :enemy="currentEnemy"
-          @combat-end="endCombat"
-          @character-updated="onCharacterUpdated"
-        />
-        
-        <!-- 勝利画面 -->
-        <VictoryScreen 
-          v-else-if="gameState === 'victory'"
-          :character="currentCharacter"
-          :reward="lastReward"
-          :game-stats="gameStats"
-          @return-to-town="returnToTown"
-        />
-        
-        <!-- ゲームオーバー画面 -->
-        <GameOverScreen 
-          v-else-if="gameState === 'game-over'"
-          :character="currentCharacter"
-          :game-stats="gameStats"
-          @restart="resetGame"
-          @return-to-town="returnToTown"
-        />
-      </div>
+    </div>
+
+    <!-- デバッグ情報（開発時のみ） -->
+    <div v-if="showDebugInfo" class="debug-info">
+      <h4>Debug Info</h4>
+      <div>Screen: {{ currentScreen }}</div>
+      <div>Authenticated: {{ isAuthenticated }}</div>
+      <div>Character: {{ selectedCharacter?.name || 'None' }}</div>
+      <div>Characters Count: {{ characters.length }}</div>
     </div>
   </div>
 </template>
 
 <script>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
+import { authService } from './api/auth.js'
+import { charactersAPI } from './api/characters.js'
+import { savesAPI } from './api/saves.js'
+
+// コンポーネントのインポート
 import AuthComponent from './components/auth/AuthComponent.vue'
 import CharacterCreation from './components/game/CharacterCreation.vue'
 import TownScreen from './components/game/TownScreen.vue'
@@ -92,9 +116,6 @@ import DungeonView from './components/game/DungeonView.vue'
 import CombatScreen from './components/game/CombatScreen.vue'
 import VictoryScreen from './components/game/VictoryScreen.vue'
 import GameOverScreen from './components/game/GameOverScreen.vue'
-import { authService } from './api/auth.js'
-import { charactersAPI } from './api/characters.js'
-import { savesAPI } from './api/saves.js'
 
 export default {
   name: 'App',
@@ -111,333 +132,539 @@ export default {
   
   setup() {
     // リアクティブデータ
-    const loading = ref(true)
     const isAuthenticated = ref(false)
-    const gameState = ref('character-creation')
-    const currentCharacter = ref(null)
-    const currentEnemy = ref(null)
-    const lastReward = ref({ gold: 0, exp: 0 })
+    const user = ref(null)
+    const characters = ref([])
+    const selectedCharacter = ref(null)
+    const loading = ref(true)
+    const error = ref('')
+    const currentScreen = ref('auth')
+    const showDebugInfo = ref(import.meta.env.DEV) // 開発時のみ
     
-    // ゲーム統計
+    // ゲーム関連の状態
+    const gameProgress = ref(null)
+    const currentEnemy = ref(null)
+    const victoryReward = ref(null)
     const gameStats = reactive({
-      startTime: Date.now(),
-      reachedFloor: 1,
+      startTime: null,
       defeatedEnemies: 0,
       usedPotions: 0,
       openedChests: 0,
-      lastEnemy: null,
-      deathCause: 'combat'
+      reachedFloor: 1,
+      deathCause: null
     })
     
-    // ゲーム進行状況
-    const gameProgress = reactive({
-      currentFloor: 1,
-      playerX: 1,
-      playerY: 6,
-      potions: 3,
-      keys: 0,
-      doorStates: {},
-      chestStates: {},
-      playerPositions: {
-        1: { x: 1, y: 6 },
-        2: { x: 1, y: 1 },
-        3: { x: 1, y: 1 }
-      },
-      messages: []
+    // 計算プロパティ
+    const canShowGame = computed(() => {
+      return isAuthenticated.value && selectedCharacter.value
     })
     
-    // 初期化
-    onMounted(async () => {
+    // エラー管理
+    const clearError = () => {
+      error.value = ''
+    }
+    
+    const setError = (message) => {
+      error.value = message
+      console.error('App Error:', message)
+    }
+    
+    // 認証チェック（修正版）
+    const checkAuthentication = async () => {
       try {
-        // 認証状態確認
-        const user = await authService.getCurrentUser()
-        if (user) {
+        loading.value = true
+        error.value = ''
+        
+        console.log('Checking authentication...')
+        
+        // 認証状態をチェック
+        if (!authService.isAuthenticated()) {
+          // 保存されたセッションから復元を試行
+          try {
+            const savedUser = await authService.getCurrentUser()
+            if (savedUser) {
+              user.value = savedUser
+              isAuthenticated.value = true
+              
+              console.log('Restored user session:', savedUser)
+              
+              // 認証成功後にデータを読み込み
+              await loadUserData()
+              return
+            }
+          } catch (err) {
+            console.log('No saved session found:', err.message)
+          }
+        } else {
+          // 既に認証済みの場合
+          if (!user.value) {
+            try {
+              const currentUser = await authService.getCurrentUser()
+              user.value = currentUser
+            } catch (err) {
+              console.error('Failed to get current user:', err)
+              // 認証エラーの場合はログアウト状態にする
+              await authService.signOut()
+              isAuthenticated.value = false
+              user.value = null
+              currentScreen.value = 'auth'
+              return
+            }
+          }
+          
           isAuthenticated.value = true
           await loadUserData()
+          return
         }
-      } catch (error) {
-        console.log('User not authenticated:', error)
+        
+        // 認証されていない場合
+        isAuthenticated.value = false
+        currentScreen.value = 'auth'
+        
+      } catch (err) {
+        console.error('Authentication check failed:', err)
+        setError('認証チェックに失敗しました')
+        isAuthenticated.value = false
+        currentScreen.value = 'auth'
       } finally {
         loading.value = false
       }
-    })
-    
-    // 認証関連のハンドラー
-    const onAuthenticated = async (user) => {
-      isAuthenticated.value = true
-      await loadUserData()
     }
     
+    // ユーザーデータ読み込み（修正版）
     const loadUserData = async () => {
       try {
-        // キャラクター一覧を取得
-        const characters = await charactersAPI.list()
-        if (characters.length > 0) {
-          // 最後に使用したキャラクターまたは最初のキャラクターを選択
-          currentCharacter.value = characters[0]
-          await loadGameProgress()
-          gameState.value = 'town'
-        } else {
-          // キャラクターが存在しない場合は作成画面へ
-          gameState.value = 'character-creation'
-        }
-      } catch (error) {
-        console.error('Failed to load user data:', error)
-        gameState.value = 'character-creation'
-      }
-    }
-    
-    const loadGameProgress = async () => {
-      if (!currentCharacter.value) return
-      
-      try {
-        const saveData = await savesAPI.get(currentCharacter.value.id)
-        if (saveData) {
-          // セーブデータから進行状況を復元
-          Object.assign(gameProgress, {
-            currentFloor: saveData.currentFloor || 1,
-            playerX: saveData.playerX || 1,
-            playerY: saveData.playerY || 6,
-            potions: saveData.potions || 3,
-            keys: saveData.keys || 0,
-            doorStates: saveData.doorStates || {},
-            chestStates: saveData.chestStates || {},
-            playerPositions: saveData.playerPositions || {
-              1: { x: 1, y: 6 },
-              2: { x: 1, y: 1 },
-              3: { x: 1, y: 1 }
-            },
-            messages: saveData.messages || []
-          })
-        }
-      } catch (error) {
-        console.log('No save data found, using defaults')
-        // セーブデータがない場合はデフォルト値を使用
-      }
-    }
-    
-    const saveGameProgress = async () => {
-      if (!currentCharacter.value) return
-      
-      try {
-        const saveData = {
-          characterId: currentCharacter.value.id,
-          character: currentCharacter.value,
-          ...gameProgress
+        // 認証状態を再確認
+        if (!authService.isAuthenticated()) {
+          throw new Error('認証が必要です')
         }
         
-        // 既存セーブデータがあるかチェック
-        try {
-          await savesAPI.get(currentCharacter.value.id)
-          // 存在する場合は更新
-          await savesAPI.update(currentCharacter.value.id, saveData)
-        } catch {
-          // 存在しない場合は作成
-          await savesAPI.create(saveData)
+        console.log('Loading user data...')
+        
+        // キャラクター一覧を取得
+        const userCharacters = await charactersAPI.list()
+        characters.value = userCharacters || []
+        
+        console.log('Loaded characters:', userCharacters)
+        
+        // キャラクターが存在する場合は選択、なければキャラクター作成画面へ
+        if (characters.value.length > 0) {
+          selectedCharacter.value = characters.value[0]
+          currentScreen.value = 'town'
+        } else {
+          currentScreen.value = 'character-creation'
         }
-      } catch (error) {
-        console.error('Failed to save game progress:', error)
+        
+      } catch (err) {
+        console.error('Failed to load user data:', err)
+        
+        // 認証エラーの場合
+        if (err.message.includes('認証') || err.message.includes('Not authenticated')) {
+          setError('認証の有効期限が切れました。再度ログインしてください。')
+          await authService.signOut()
+          isAuthenticated.value = false
+          user.value = null
+          currentScreen.value = 'auth'
+        } else {
+          // その他のエラー - キャラクター作成画面に遷移
+          console.log('No characters found, showing character creation')
+          currentScreen.value = 'character-creation'
+        }
       }
     }
     
-    // キャラクター関連のハンドラー
-    const onCharacterCreated = (character) => {
-      currentCharacter.value = character
-      gameState.value = 'town'
-      saveGameProgress()
+    // 認証成功ハンドラー
+    const handleAuthenticated = async (userData) => {
+      try {
+        user.value = userData
+        isAuthenticated.value = true
+        error.value = ''
+        
+        console.log('Authentication successful:', userData)
+        
+        // 認証成功後にデータを読み込み
+        await loadUserData()
+        
+      } catch (err) {
+        console.error('Post-authentication setup failed:', err)
+        setError('ログイン後の初期化に失敗しました')
+      }
     }
     
-    const onCharacterSelected = (character) => {
-      currentCharacter.value = character
-      loadGameProgress()
-      gameState.value = 'town'
+    // キャラクター作成ハンドラー
+    const handleCharacterCreated = async (character) => {
+      try {
+        characters.value.push(character)
+        selectedCharacter.value = character
+        currentScreen.value = 'town'
+        error.value = ''
+        
+        console.log('Character created:', character)
+        
+      } catch (err) {
+        console.error('Character creation handler failed:', err)
+        setError('キャラクター作成の処理に失敗しました')
+      }
     }
     
-    const onCharacterUpdated = async (updatedCharacter) => {
-      currentCharacter.value = updatedCharacter
-      await saveGameProgress()
+    // キャラクター選択ハンドラー
+    const handleCharacterSelected = (character) => {
+      selectedCharacter.value = character
+      currentScreen.value = 'town'
+      error.value = ''
+      
+      console.log('Character selected:', character)
     }
     
-    // ゲーム状態のハンドラー
-    const enterDungeon = () => {
-      gameState.value = 'playing'
-      gameStats.startTime = Date.now()
-      gameStats.reachedFloor = 1
+    // キャラクター更新ハンドラー
+    const handleCharacterUpdated = (updatedCharacter) => {
+      selectedCharacter.value = updatedCharacter
+      
+      // キャラクター一覧も更新
+      const index = characters.value.findIndex(char => char.id === updatedCharacter.id)
+      if (index !== -1) {
+        characters.value[index] = updatedCharacter
+      }
+      
+      console.log('Character updated:', updatedCharacter)
+    }
+    
+    // ダンジョン進入ハンドラー
+    const handleEnterDungeon = async () => {
+      try {
+        // セーブデータを取得または作成
+        let saveData = await savesAPI.get(selectedCharacter.value.id)
+        
+        if (!saveData) {
+          // 新しいセーブデータを作成
+          saveData = savesAPI.createDefaultSaveData(selectedCharacter.value)
+          await savesAPI.create(saveData)
+        }
+        
+        gameProgress.value = saveData
+        gameStats.startTime = Date.now()
+        gameStats.defeatedEnemies = 0
+        gameStats.usedPotions = 0
+        gameStats.openedChests = 0
+        gameStats.reachedFloor = saveData.currentFloor
+        gameStats.deathCause = null
+        
+        currentScreen.value = 'dungeon'
+        
+        console.log('Entered dungeon with save data:', saveData)
+        
+      } catch (err) {
+        console.error('Failed to enter dungeon:', err)
+        setError('ダンジョンへの進入に失敗しました')
+      }
+    }
+    
+    // ギルド進入ハンドラー
+    const handleEnterGuild = () => {
+      currentScreen.value = 'guild'
+    }
+    
+    // ギルド退出ハンドラー
+    const handleLeaveGuild = () => {
+      currentScreen.value = 'town'
+    }
+    
+    // ゲーム進行更新ハンドラー
+    const handleGameProgressUpdated = async (updatedProgress) => {
+      try {
+        gameProgress.value = updatedProgress
+        
+        // セーブデータを更新
+        await savesAPI.update(selectedCharacter.value.id, updatedProgress)
+        
+        console.log('Game progress updated:', updatedProgress)
+        
+      } catch (err) {
+        console.error('Failed to update game progress:', err)
+        setError('ゲーム進行の保存に失敗しました')
+      }
+    }
+    
+    // 戦闘開始ハンドラー
+    const handleCombatStart = (enemy) => {
+      currentEnemy.value = enemy
+      currentScreen.value = 'combat'
+      
+      console.log('Combat started against:', enemy)
+    }
+    
+    // 戦闘終了ハンドラー
+    const handleCombatEnd = async (result) => {
+      try {
+        if (result.victory) {
+          // 勝利の場合
+          gameStats.defeatedEnemies++
+          currentScreen.value = 'dungeon'
+          
+          // キャラクターを更新（経験値・ゴールド獲得済み）
+          const updatedCharacter = await charactersAPI.update(
+            selectedCharacter.value.id, 
+            selectedCharacter.value
+          )
+          selectedCharacter.value = updatedCharacter
+          
+        } else if (result.fled) {
+          // 逃走の場合
+          currentScreen.value = 'dungeon'
+          
+        } else {
+          // 敗北の場合
+          gameStats.deathCause = 'combat'
+          currentScreen.value = 'game-over'
+        }
+        
+        currentEnemy.value = null
+        
+      } catch (err) {
+        console.error('Combat end handler failed:', err)
+        setError('戦闘結果の処理に失敗しました')
+      }
+    }
+    
+    // 勝利ハンドラー
+    const handleVictory = async (reward) => {
+      try {
+        victoryReward.value = reward
+        
+        // キャラクターに報酬を追加
+        const updatedCharacter = charactersAPI.gainExpAndGold(
+          selectedCharacter.value, 
+          reward.exp, 
+          reward.gold
+        )
+        
+        // キャラクターを更新
+        const result = await charactersAPI.update(updatedCharacter.id, updatedCharacter)
+        selectedCharacter.value = result
+        
+        currentScreen.value = 'victory'
+        
+        console.log('Victory! Reward:', reward)
+        
+      } catch (err) {
+        console.error('Victory handler failed:', err)
+        setError('勝利報酬の処理に失敗しました')
+      }
+    }
+    
+    // 町に戻るハンドラー
+    const handleReturnToTown = () => {
+      currentScreen.value = 'town'
+      gameProgress.value = null
+      currentEnemy.value = null
+      victoryReward.value = null
+      
+      // ゲーム統計をリセット
+      gameStats.startTime = null
       gameStats.defeatedEnemies = 0
       gameStats.usedPotions = 0
       gameStats.openedChests = 0
-      saveGameProgress()
+      gameStats.reachedFloor = 1
+      gameStats.deathCause = null
     }
     
-    const enterGuild = () => {
-      gameState.value = 'guild'
+    // リスタートハンドラー
+    const handleRestart = () => {
+      handleReturnToTown()
+      handleEnterDungeon()
     }
     
-    const leaveGuild = () => {
-      gameState.value = 'town'
-    }
-    
-    const startCombat = (enemy) => {
-      currentEnemy.value = enemy
-      gameStats.lastEnemy = enemy.name
-      gameState.value = 'combat'
-    }
-    
-    const endCombat = (result) => {
-      if (result.victory) {
-        gameStats.defeatedEnemies++
-        gameState.value = 'playing'
-      } else if (result.fled) {
-        gameState.value = 'playing'
-      } else {
-        // プレイヤー敗北
-        gameStats.deathCause = 'combat'
-        gameState.value = 'game-over'
-      }
-      currentEnemy.value = null
-      saveGameProgress()
-    }
-    
-    const onVictory = (reward) => {
-      lastReward.value = reward
-      gameState.value = 'victory'
-    }
-    
-    const returnToTown = () => {
-      gameState.value = 'town'
-      // ダンジョン進行状況をリセット
-      Object.assign(gameProgress, {
-        currentFloor: 1,
-        playerX: 1,
-        playerY: 6,
-        potions: 3,
-        keys: 0,
-        doorStates: {},
-        chestStates: {},
-        playerPositions: {
-          1: { x: 1, y: 6 },
-          2: { x: 1, y: 1 },
-          3: { x: 1, y: 1 }
-        },
-        messages: []
-      })
-      saveGameProgress()
-    }
-    
-    const onGameProgressUpdated = (progress) => {
-      Object.assign(gameProgress, progress)
-      
-      // ゲーム統計を更新
-      if (progress.currentFloor > gameStats.reachedFloor) {
-        gameStats.reachedFloor = progress.currentFloor
-      }
-      
-      saveGameProgress()
-    }
-    
-    const resetGame = () => {
-      currentCharacter.value = null
-      gameState.value = 'character-creation'
-      Object.assign(gameProgress, {
-        currentFloor: 1,
-        playerX: 1,
-        playerY: 6,
-        potions: 3,
-        keys: 0,
-        doorStates: {},
-        chestStates: {},
-        playerPositions: {
-          1: { x: 1, y: 6 },
-          2: { x: 1, y: 1 },
-          3: { x: 1, y: 1 }
-        },
-        messages: []
-      })
-    }
-    
-    // 自動保存（定期的にゲーム進行状況を保存）
-    watch([currentCharacter, gameProgress], () => {
-      if (currentCharacter.value && gameState.value !== 'character-creation') {
-        saveGameProgress()
-      }
-    }, { deep: true })
+    // 初期化
+    onMounted(async () => {
+      console.log('App mounted, checking authentication...')
+      await checkAuthentication()
+    })
     
     return {
-      loading,
+      // 状態
       isAuthenticated,
-      gameState,
-      currentCharacter,
-      currentEnemy,
-      lastReward,
+      user,
+      characters,
+      selectedCharacter,
+      loading,
+      error,
+      currentScreen,
+      showDebugInfo,
       gameProgress,
+      currentEnemy,
+      victoryReward,
       gameStats,
-      onAuthenticated,
-      onCharacterCreated,
-      onCharacterSelected,
-      onCharacterUpdated,
-      enterDungeon,
-      enterGuild,
-      leaveGuild,
-      startCombat,
-      endCombat,
-      onVictory,
-      returnToTown,
-      onGameProgressUpdated,
-      resetGame
+      
+      // 計算プロパティ
+      canShowGame,
+      
+      // メソッド
+      clearError,
+      handleAuthenticated,
+      handleCharacterCreated,
+      handleCharacterSelected,
+      handleCharacterUpdated,
+      handleEnterDungeon,
+      handleEnterGuild,
+      handleLeaveGuild,
+      handleGameProgressUpdated,
+      handleCombatStart,
+      handleCombatEnd,
+      handleVictory,
+      handleReturnToTown,
+      handleRestart,
+      loadUserData,
+      checkAuthentication
     }
   }
 }
 </script>
 
 <style scoped>
-.game-container {
-  max-width: 800px;
-  margin: 0 auto;
-  background-color: #001a00;
-  border: 2px solid #00ff00;
-  padding: 20px;
-  border-radius: 10px;
-  animation: fadeIn 0.5s ease-out;
-}
-
-.title {
-  text-align: center;
-  font-size: 24px;
-  margin-bottom: 20px;
-  color: #ffff00;
-  text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+#app {
+  min-height: 100vh;
+  background-color: #000;
+  color: #00ff00;
+  font-family: 'Courier New', monospace;
 }
 
 .loading-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #001100, #003300, #001100);
+}
+
+.loading-content {
   text-align: center;
-  padding: 50px;
+  background-color: #001a00;
+  border: 2px solid #00ff00;
+  border-radius: 10px;
+  padding: 40px;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
 }
 
-.loading-text {
-  font-size: 18px;
+.loading-spinner {
+  font-size: 48px;
+  animation: spin 2s linear infinite;
+  margin-bottom: 20px;
+}
+
+.loading-content h2 {
+  color: #ffff00;
+  margin-bottom: 10px;
+  font-size: 24px;
+}
+
+.loading-content p {
+  color: #888;
+  margin: 0;
+}
+
+.app-content {
+  min-height: 100vh;
+}
+
+.error-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.error-content {
+  background-color: #330000;
+  border: 2px solid #ff4444;
+  border-radius: 10px;
+  padding: 30px;
+  max-width: 400px;
+  text-align: center;
+}
+
+.error-content h3 {
+  color: #ff4444;
+  margin-bottom: 15px;
+}
+
+.error-content p {
+  color: #fff;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.error-btn {
+  background-color: #ff4444;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  padding: 10px 20px;
+  font-family: inherit;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.error-btn:hover {
+  background-color: #ff6666;
+  box-shadow: 0 0 10px rgba(255, 68, 68, 0.5);
+}
+
+.debug-info {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background-color: rgba(0, 0, 0, 0.8);
+  border: 1px solid #666;
+  border-radius: 5px;
+  padding: 10px;
+  font-size: 12px;
+  color: #888;
+  z-index: 1000;
+}
+
+.debug-info h4 {
   color: #00ff00;
-  animation: pulse 2s infinite;
+  margin: 0 0 5px 0;
+  font-size: 14px;
 }
 
-@keyframes pulse {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
+.debug-info div {
+  margin-bottom: 3px;
 }
 
-@keyframes fadeIn {
+@keyframes spin {
   from {
-    opacity: 0;
-    transform: translateY(20px);
+    transform: rotate(0deg);
   }
   to {
-    opacity: 1;
-    transform: translateY(0);
+    transform: rotate(360deg);
   }
 }
 
-.auth-screen {
-  max-width: 400px;
-  margin: 0 auto;
+/* レスポンシブ対応 */
+@media (max-width: 768px) {
+  .loading-content {
+    margin: 20px;
+    padding: 30px;
+  }
+  
+  .error-content {
+    margin: 20px;
+    padding: 20px;
+  }
+  
+  .debug-info {
+    top: 5px;
+    right: 5px;
+    font-size: 10px;
+    padding: 5px;
+  }
 }
 </style>
