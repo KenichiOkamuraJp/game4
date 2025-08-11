@@ -97,6 +97,8 @@
       <div>Authenticated: {{ isAuthenticated }}</div>
       <div>Character: {{ selectedCharacter?.name || 'None' }}</div>
       <div>Characters Count: {{ characters.length }}</div>
+      <div v-if="gameProgress">Player Pos: ({{ gameProgress.playerX }}, {{ gameProgress.playerY }})</div>
+      <div v-if="gameProgress">Floor: {{ gameProgress.currentFloor }}</div>
     </div>
   </div>
 </template>
@@ -167,6 +169,39 @@ export default {
     const setError = (message) => {
       error.value = message
       console.error('App Error:', message)
+    }
+    
+    // セーブデータの検証と修正関数
+    const validateAndFixSaveData = (saveData) => {
+      const fixed = { ...saveData }
+      
+      // プレイヤー位置の検証
+      if (!fixed.playerX || !fixed.playerY || 
+          fixed.playerX < 0 || fixed.playerX >= 8 || 
+          fixed.playerY < 0 || fixed.playerY >= 8) {
+        console.log('Invalid player position, resetting to default')
+        fixed.playerX = 2
+        fixed.playerY = 1
+      }
+      
+      // 現在の階層の検証
+      if (!fixed.currentFloor || fixed.currentFloor < 1 || fixed.currentFloor > 3) {
+        console.log('Invalid floor, resetting to 1')
+        fixed.currentFloor = 1
+      }
+      
+      // 必須フィールドの初期化
+      if (!fixed.doorStates) fixed.doorStates = {}
+      if (!fixed.chestStates) fixed.chestStates = {}
+      if (!fixed.messages) fixed.messages = [`${selectedCharacter.value.name}がダンジョンに入りました！`]
+      if (!fixed.playerPositions) fixed.playerPositions = savesAPI.getDefaultPlayerPositions()
+      
+      // アイテム数の検証
+      if (typeof fixed.potions !== 'number' || fixed.potions < 0) fixed.potions = 3
+      if (typeof fixed.keys !== 'number' || fixed.keys < 0) fixed.keys = 0
+      
+      console.log('Validated and fixed save data:', fixed)
+      return fixed
     }
     
     // 認証チェック（修正版）
@@ -329,18 +364,42 @@ export default {
       console.log('Character updated:', updatedCharacter)
     }
     
-    // ダンジョン進入ハンドラー
+    // ダンジョン進入ハンドラー（修正版）
     const handleEnterDungeon = async () => {
       try {
+        loading.value = true
+        error.value = ''
+        
+        console.log('Entering dungeon with character:', selectedCharacter.value)
+        
         // セーブデータを取得または作成
-        let saveData = await savesAPI.get(selectedCharacter.value.id)
+        let saveData
+        try {
+          saveData = await savesAPI.get(selectedCharacter.value.id)
+          console.log('Loaded save data:', saveData)
+        } catch (loadError) {
+          console.log('No existing save data, creating new...', loadError)
+          saveData = null
+        }
         
         if (!saveData) {
           // 新しいセーブデータを作成
           saveData = savesAPI.createDefaultSaveData(selectedCharacter.value)
-          await savesAPI.create(saveData)
+          console.log('Created default save data:', saveData)
+          
+          try {
+            await savesAPI.create(saveData)
+            console.log('Save data created successfully')
+          } catch (createError) {
+            console.warn('Failed to create save data on server, continuing with local data:', createError)
+            // サーバーでの作成に失敗してもローカルデータで続行
+          }
         }
         
+        // データの整合性チェックと修正
+        saveData = validateAndFixSaveData(saveData)
+        
+        // ゲーム状態を設定
         gameProgress.value = saveData
         gameStats.startTime = Date.now()
         gameStats.defeatedEnemies = 0
@@ -351,11 +410,13 @@ export default {
         
         currentScreen.value = 'dungeon'
         
-        console.log('Entered dungeon with save data:', saveData)
+        console.log('Successfully entered dungeon with progress:', gameProgress.value)
         
       } catch (err) {
         console.error('Failed to enter dungeon:', err)
-        setError('ダンジョンへの進入に失敗しました')
+        setError('ダンジョンへの進入に失敗しました: ' + (err.message || 'Unknown error'))
+      } finally {
+        loading.value = false
       }
     }
     
@@ -369,19 +430,32 @@ export default {
       currentScreen.value = 'town'
     }
     
-    // ゲーム進行更新ハンドラー
+    // ゲーム進行更新ハンドラー（修正版）
     const handleGameProgressUpdated = async (updatedProgress) => {
       try {
-        gameProgress.value = updatedProgress
+        console.log('Updating game progress from child:', updatedProgress)
         
-        // セーブデータを更新
-        await savesAPI.update(selectedCharacter.value.id, updatedProgress)
+        // 即座にローカル状態を更新
+        const previousProgress = gameProgress.value
+        gameProgress.value = { ...updatedProgress }
         
-        console.log('Game progress updated:', updatedProgress)
+        console.log('Local game progress updated:', gameProgress.value)
+        
+        // バックグラウンドでセーブデータを更新（失敗してもUI更新は維持）
+        try {
+          await savesAPI.update(selectedCharacter.value.id, updatedProgress)
+          console.log('Save data updated successfully')
+        } catch (saveError) {
+          console.error('Failed to save game progress, but UI state maintained:', saveError)
+          // セーブエラーの場合、ユーザーに通知するが、ゲーム状態は維持
+          error.value = '進行状況の保存に失敗しましたが、ゲームは続行できます'
+          setTimeout(() => { error.value = '' }, 3000)
+        }
         
       } catch (err) {
         console.error('Failed to update game progress:', err)
-        setError('ゲーム進行の保存に失敗しました')
+        // 更新に完全に失敗した場合のみ、エラーを表示
+        setError('ゲーム進行の更新に失敗しました')
       }
     }
     
@@ -627,6 +701,7 @@ export default {
   font-size: 12px;
   color: #888;
   z-index: 1000;
+  max-width: 300px;
 }
 
 .debug-info h4 {
@@ -637,6 +712,7 @@ export default {
 
 .debug-info div {
   margin-bottom: 3px;
+  word-break: break-all;
 }
 
 @keyframes spin {
@@ -665,6 +741,7 @@ export default {
     right: 5px;
     font-size: 10px;
     padding: 5px;
+    max-width: 200px;
   }
 }
 </style>

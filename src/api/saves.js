@@ -125,26 +125,26 @@ class SavesAPI {
     }
   }
 
-  /**
-   * デフォルトのプレイヤー位置を取得
-   */
+/**
+ * デフォルトのプレイヤー位置を取得
+ */
   getDefaultPlayerPositions() {
     return {
-      1: { x: 1, y: 6 },
-      2: { x: 1, y: 1 },
-      3: { x: 1, y: 1 }
+      1: { x: 2, y: 1 }, // 1階：通常の床（階段ではない）
+      2: { x: 1, y: 1 }, // 2階：階段上の位置
+      3: { x: 1, y: 1 }  // 3階：階段上の位置
     }
   }
 
-  /**
-   * 新しいゲーム用のデフォルトセーブデータを作成
-   */
+/**
+ * 新しいゲーム用のデフォルトセーブデータを作成
+ */
   createDefaultSaveData(character) {
     return {
       character: character,
       currentFloor: 1,
-      playerX: 1,
-      playerY: 6,
+      playerX: 2,      // x座標を2に変更（通常の床）
+      playerY: 1,      // y座標を1に変更（通常の床）
       potions: 3,
       keys: 0,
       doorStates: {},

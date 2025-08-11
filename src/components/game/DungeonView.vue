@@ -40,7 +40,7 @@
         
         <div class="status-info">
           <div class="floor-info">
-            <strong>🏰 {{ gameProgress.currentFloor }}階</strong>
+            <strong>🏰 {{ localGameProgress.currentFloor }}階</strong>
           </div>
           <div class="hp-info">
             HP: {{ character.hp }}/{{ character.maxHp }}
@@ -52,17 +52,17 @@
             </div>
           </div>
           <div class="attack-info">攻撃力: {{ character.attack }}</div>
-          <div class="position-info">位置: ({{ gameProgress.playerX }}, {{ gameProgress.playerY }})</div>
+          <div class="position-info">位置: ({{ localGameProgress.playerX }}, {{ localGameProgress.playerY }})</div>
           <div class="items-info">
-            <div>🗝️ 鍵: {{ gameProgress.keys }}個</div>
-            <div>🧪 回復薬: {{ gameProgress.potions }}個</div>
+            <div>🗝️ 鍵: {{ localGameProgress.keys }}個</div>
+            <div>🧪 回復薬: {{ localGameProgress.potions }}個</div>
           </div>
         </div>
         
         <!-- メッセージログ -->
         <div class="message-log">
           <div 
-            v-for="(message, index) in gameProgress.messages" 
+            v-for="(message, index) in localGameProgress.messages" 
             :key="index"
             class="message"
           >
@@ -103,7 +103,7 @@
               🚪 扉を開ける
             </button>
             <button 
-              v-if="!adjacentDoor.isOpen && adjacentDoor.isLocked && gameProgress.keys > 0"
+              v-if="!adjacentDoor.isOpen && adjacentDoor.isLocked && localGameProgress.keys > 0"
               @click="unlockDoor"
               :disabled="loading"
               class="action-btn door-btn"
@@ -111,7 +111,7 @@
               🗝️ 鍵で扉を開ける
             </button>
             <button 
-              v-if="!adjacentDoor.isOpen && adjacentDoor.isLocked && gameProgress.keys === 0"
+              v-if="!adjacentDoor.isOpen && adjacentDoor.isLocked && localGameProgress.keys === 0"
               disabled
               class="action-btn door-btn disabled"
             >
@@ -138,11 +138,23 @@
     <div v-if="error" class="error-message">
       {{ error }}
     </div>
+    
+    <!-- デバッグ情報（開発時のみ） -->
+    <div v-if="showDebugInfo" class="debug-panel">
+      <h4>🐛 Debug Info</h4>
+      <div>Player Position: ({{ localGameProgress.playerX }}, {{ localGameProgress.playerY }})</div>
+      <div>Current Floor: {{ localGameProgress.currentFloor }}</div>
+      <div>Loading: {{ loading }}</div>
+      <div>Can Move Up: {{ isValidPositionDebug(localGameProgress.playerX, localGameProgress.playerY - 1) }}</div>
+      <div>Can Move Down: {{ isValidPositionDebug(localGameProgress.playerX, localGameProgress.playerY + 1) }}</div>
+      <div>Can Move Left: {{ isValidPositionDebug(localGameProgress.playerX - 1, localGameProgress.playerY) }}</div>
+      <div>Can Move Right: {{ isValidPositionDebug(localGameProgress.playerX + 1, localGameProgress.playerY) }}</div>
+    </div>
   </div>
 </template>
 
 <script>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { savesAPI } from '../../api/saves.js'
 
 export default {
@@ -168,6 +180,10 @@ export default {
   setup(props, { emit }) {
     const loading = ref(false)
     const error = ref('')
+    const showDebugInfo = ref(true) // デバッグ用
+    
+    // ローカル状態として gameProgress をコピー（即座に更新するため）
+    const localGameProgress = ref({ ...props.gameProgress })
     
     // 定数
     const VIEW_RANGE = 2
@@ -178,24 +194,30 @@ export default {
     const dungeonMaps = savesAPI.getDungeonMaps()
     const cellTypes = savesAPI.getCellTypes()
     
+    // propsの変更を監視してローカル状態を更新
+    watch(() => props.gameProgress, (newProgress) => {
+      console.log('GameProgress updated from parent:', newProgress)
+      localGameProgress.value = { ...newProgress }
+    }, { deep: true, immediate: true })
+    
     // 計算プロパティ
     const hpPercentage = computed(() => {
       return Math.round((props.character.hp / props.character.maxHp) * 100)
     })
     
     const canUsePotion = computed(() => {
-      return props.gameProgress.potions > 0 && 
+      return localGameProgress.value.potions > 0 && 
              props.character.hp < props.character.maxHp
     })
     
-    // マップ表示用の計算プロパティ
+    // マップ表示用の計算プロパティ（ローカル状態使用）
     const mapDisplay = computed(() => {
       const display = []
       
       for (let dy = -VIEW_RANGE; dy <= VIEW_RANGE; dy++) {
         for (let dx = -VIEW_RANGE; dx <= VIEW_RANGE; dx++) {
-          const x = props.gameProgress.playerX + dx
-          const y = props.gameProgress.playerY + dy
+          const x = localGameProgress.value.playerX + dx
+          const y = localGameProgress.value.playerY + dy
           
           if (dx === 0 && dy === 0) {
             display.push('player')
@@ -213,12 +235,12 @@ export default {
       return display
     })
     
-    // 隣接する特殊セルの検出
+    // 隣接する特殊セルの検出（ローカル状態使用）
     const adjacentStairs = computed(() => {
       return findAdjacentCell([cellTypes.STAIRS_UP, cellTypes.STAIRS_DOWN], (cell, x, y) => {
         const isUp = cell === cellTypes.STAIRS_UP
-        const isExit = props.gameProgress.currentFloor === 1 && isUp
-        const canUse = isExit || (isUp ? props.gameProgress.currentFloor > 1 : props.gameProgress.currentFloor < 3)
+        const isExit = localGameProgress.value.currentFloor === 1 && isUp
+        const canUse = isExit || (isUp ? localGameProgress.value.currentFloor > 1 : localGameProgress.value.currentFloor < 3)
         
         return { isUp, canUse, isExit }
       })
@@ -226,10 +248,10 @@ export default {
     
     const adjacentDoor = computed(() => {
       return findAdjacentCell([cellTypes.DOOR, cellTypes.LOCKED_DOOR], (cell, x, y) => {
-        const doorKey = `${props.gameProgress.currentFloor}-${x}-${y}`
+        const doorKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
         return {
           x, y,
-          isOpen: props.gameProgress.doorStates[doorKey] || false,
+          isOpen: localGameProgress.value.doorStates[doorKey] || false,
           isLocked: cell === cellTypes.LOCKED_DOOR,
           key: doorKey
         }
@@ -238,33 +260,33 @@ export default {
     
     const adjacentChest = computed(() => {
       return findAdjacentCell([cellTypes.CHEST], (cell, x, y) => {
-        const chestKey = `${props.gameProgress.currentFloor}-${x}-${y}`
+        const chestKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
         return {
           x, y,
-          isOpened: props.gameProgress.chestStates[chestKey] || false,
+          isOpened: localGameProgress.value.chestStates[chestKey] || false,
           key: chestKey
         }
       })
     })
     
-    // ユーティリティ関数
+    // ユーティリティ関数（ローカル状態使用）
     const getCellType = (x, y) => {
-      const cell = dungeonMaps[props.gameProgress.currentFloor][y][x]
+      const cell = dungeonMaps[localGameProgress.value.currentFloor][y][x]
       
       if (cell === cellTypes.WALL) return 'wall'
       if (cell === cellTypes.FLOOR || cell === cellTypes.ENEMY) return 'floor'
       if (cell === cellTypes.GOAL) return 'goal'
       if (cell === cellTypes.DOOR) {
-        const doorKey = `${props.gameProgress.currentFloor}-${x}-${y}`
-        return props.gameProgress.doorStates[doorKey] ? 'door-open' : 'door-closed'
+        const doorKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
+        return localGameProgress.value.doorStates[doorKey] ? 'door-open' : 'door-closed'
       }
       if (cell === cellTypes.LOCKED_DOOR) {
-        const doorKey = `${props.gameProgress.currentFloor}-${x}-${y}`
-        return props.gameProgress.doorStates[doorKey] ? 'door-open' : 'door-locked'
+        const doorKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
+        return localGameProgress.value.doorStates[doorKey] ? 'door-open' : 'door-locked'
       }
       if (cell === cellTypes.CHEST) {
-        const chestKey = `${props.gameProgress.currentFloor}-${x}-${y}`
-        return props.gameProgress.chestStates[chestKey] ? 'treasure-opened' : 'treasure-chest'
+        const chestKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
+        return localGameProgress.value.chestStates[chestKey] ? 'treasure-opened' : 'treasure-chest'
       }
       if (cell === cellTypes.STAIRS_UP) return 'stairs-up'
       if (cell === cellTypes.STAIRS_DOWN) return 'stairs-down'
@@ -278,11 +300,11 @@ export default {
       ]
       
       for (let dir of directions) {
-        const x = props.gameProgress.playerX + dir.dx
-        const y = props.gameProgress.playerY + dir.dy
+        const x = localGameProgress.value.playerX + dir.dx
+        const y = localGameProgress.value.playerY + dir.dy
         
         if (x >= 0 && x < MAP_SIZE && y >= 0 && y < MAP_SIZE) {
-          const cell = dungeonMaps[props.gameProgress.currentFloor][y][x]
+          const cell = dungeonMaps[localGameProgress.value.currentFloor][y][x]
           if (cellTypeList.includes(cell)) {
             return dataFactory(cell, x, y)
           }
@@ -321,19 +343,38 @@ export default {
       return adjacentStairs.value.isUp ? '⬆️ 上の階に行く' : '⬇️ 下の階に行く'
     }
     
-    const addMessage = (text) => {
-      const updatedProgress = { ...props.gameProgress }
-      updatedProgress.messages = [...props.gameProgress.messages, text]
+    // ローカル状態を更新し、親に通知する関数
+    const updateGameProgress = async (updatedProgress) => {
+      console.log('Updating game progress:', updatedProgress)
+      
+      // ローカル状態を即座に更新
+      localGameProgress.value = { ...updatedProgress }
+      
+      // 親コンポーネントに通知
+      emit('game-progress-updated', updatedProgress)
+      
+      // DOM更新を待つ
+      await nextTick()
+    }
+    
+    const addMessage = async (text) => {
+      const updatedProgress = { ...localGameProgress.value }
+      updatedProgress.messages = [...localGameProgress.value.messages, text]
       
       if (updatedProgress.messages.length > 10) {
         updatedProgress.messages = updatedProgress.messages.slice(-10)
       }
       
-      emit('game-progress-updated', updatedProgress)
+      await updateGameProgress(updatedProgress)
     }
     
-    // 移動処理
-    const move = (direction) => {
+    // 移動処理の修正
+    const move = async (direction) => {
+      if (loading.value) {
+        console.log('Move blocked: loading')
+        return
+      }
+      
       const directions = {
         'up': { x: 0, y: -1 },
         'down': { x: 0, y: 1 },
@@ -341,82 +382,123 @@ export default {
         'right': { x: 1, y: 0 }
       }
       
-      const newX = props.gameProgress.playerX + directions[direction].x
-      const newY = props.gameProgress.playerY + directions[direction].y
+      const dir = directions[direction]
+      if (!dir) return
+      
+      const currentX = localGameProgress.value.playerX
+      const currentY = localGameProgress.value.playerY
+      const newX = currentX + dir.x
+      const newY = currentY + dir.y
+      
+      console.log(`Attempting move from (${currentX}, ${currentY}) to (${newX}, ${newY})`)
       
       if (!isValidPosition(newX, newY)) {
-        addMessage('そちらは壁です...')
+        await addMessage('そちらには進めません...')
         return
       }
       
-      const cell = dungeonMaps[props.gameProgress.currentFloor][newY][newX]
+      const cell = dungeonMaps[localGameProgress.value.currentFloor][newY][newX]
+      console.log(`Target cell type: ${cell}`)
       
-      if (!canMoveToCell(cell, newX, newY)) return
+      if (!(await canMoveToCell(cell, newX, newY))) return
       
-      movePlayer(newX, newY)
-      handleCellEvent(cell)
+      // 移動実行
+      loading.value = true
+      try {
+        await movePlayer(newX, newY)
+        await handleCellEvent(cell)
+      } finally {
+        loading.value = false
+      }
     }
     
     const isValidPosition = (x, y) => {
-      return x >= 0 && x < MAP_SIZE && y >= 0 && y < MAP_SIZE && 
-             dungeonMaps[props.gameProgress.currentFloor][y][x] !== cellTypes.WALL
+      if (x < 0 || x >= MAP_SIZE || y < 0 || y >= MAP_SIZE) {
+        console.log(`Invalid position: out of bounds (${x}, ${y})`)
+        return false
+      }
+      
+      if (!dungeonMaps[localGameProgress.value.currentFloor] || 
+          !dungeonMaps[localGameProgress.value.currentFloor][y]) {
+        console.log(`Invalid position: no map data for floor ${localGameProgress.value.currentFloor}`)
+        return false
+      }
+      
+      const cell = dungeonMaps[localGameProgress.value.currentFloor][y][x]
+      const isValid = cell !== cellTypes.WALL
+      console.log(`Position (${x}, ${y}) cell type: ${cell}, valid: ${isValid}`)
+      return isValid
     }
     
-    const canMoveToCell = (cell, x, y) => {
+    const canMoveToCell = async (cell, x, y) => {
       if (cell === cellTypes.DOOR || cell === cellTypes.LOCKED_DOOR) {
-        const doorKey = `${props.gameProgress.currentFloor}-${x}-${y}`
-        if (!props.gameProgress.doorStates[doorKey]) {
-          addMessage('扉が閉まっています。')
+        const doorKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
+        if (!localGameProgress.value.doorStates[doorKey]) {
+          await addMessage('扉が閉まっています。')
           return false
         }
       }
       
       if (cell === cellTypes.CHEST) {
-        addMessage('宝箱があるため進めません。')
-        return false
+        const chestKey = `${localGameProgress.value.currentFloor}-${x}-${y}`
+        if (!localGameProgress.value.chestStates[chestKey]) {
+          await addMessage('宝箱があるため進めません。')
+          return false
+        }
       }
       
       if (cell === cellTypes.STAIRS_UP || cell === cellTypes.STAIRS_DOWN) {
-        addMessage('階段があります。階段ボタンを使ってください。')
+        await addMessage('階段があります。階段ボタンを使ってください。')
         return false
       }
       
       return true
     }
     
-    const movePlayer = (x, y) => {
-      const updatedProgress = savesAPI.updatePlayerPosition(props.gameProgress, props.gameProgress.currentFloor, x, y)
-      emit('game-progress-updated', updatedProgress)
+    const movePlayer = async (x, y) => {
+      console.log(`Moving player to (${x}, ${y})`)
+      const updatedProgress = savesAPI.updatePlayerPosition(
+        localGameProgress.value, 
+        localGameProgress.value.currentFloor, 
+        x, 
+        y
+      )
+      await updateGameProgress(updatedProgress)
     }
     
-    const handleCellEvent = (cell) => {
+    const handleCellEvent = async (cell) => {
       if (cell === cellTypes.ENEMY) {
         const enemy = savesAPI.generateRandomEnemy()
         emit('combat-start', enemy)
       } else if (cell === cellTypes.GOAL) {
         emit('victory', { gold: 500, exp: 200 })
       } else {
-        addMessage(`(${props.gameProgress.playerX}, ${props.gameProgress.playerY})に移動しました`)
+        await addMessage(`(${localGameProgress.value.playerX}, ${localGameProgress.value.playerY})に移動しました`)
       }
     }
     
-    // 回復薬使用
-    const usePotion = () => {
+    // 回復薬使用（ローカル状態使用）
+    const usePotion = async () => {
       if (!canUsePotion.value) return
       
-      const healAmount = POTION_HEAL.min + Math.floor(Math.random() * (POTION_HEAL.max - POTION_HEAL.min + 1))
-      const newHp = Math.min(props.character.maxHp, props.character.hp + healAmount)
-      
-      const updatedCharacter = { ...props.character, hp: newHp }
-      const updatedProgress = savesAPI.updateItems(props.gameProgress, props.gameProgress.potions - 1, undefined)
-      
-      emit('character-updated', updatedCharacter)
-      emit('game-progress-updated', updatedProgress)
-      addMessage(`${healAmount}HP回復しました！`)
+      loading.value = true
+      try {
+        const healAmount = POTION_HEAL.min + Math.floor(Math.random() * (POTION_HEAL.max - POTION_HEAL.min + 1))
+        const newHp = Math.min(props.character.maxHp, props.character.hp + healAmount)
+        
+        const updatedCharacter = { ...props.character, hp: newHp }
+        const updatedProgress = savesAPI.updateItems(localGameProgress.value, localGameProgress.value.potions - 1, undefined)
+        
+        emit('character-updated', updatedCharacter)
+        await updateGameProgress(updatedProgress)
+        await addMessage(`${healAmount}HP回復しました！`)
+      } finally {
+        loading.value = false
+      }
     }
     
-    // 階段使用
-    const useStairs = () => {
+    // 階段使用（ローカル状態使用）
+    const useStairs = async () => {
       if (!adjacentStairs.value || !adjacentStairs.value.canUse) return
       
       if (adjacentStairs.value.isExit) {
@@ -424,77 +506,109 @@ export default {
         return
       }
       
-      const newFloor = props.gameProgress.currentFloor + (adjacentStairs.value.isUp ? -1 : 1)
-      const playerPos = props.gameProgress.playerPositions[newFloor]
-      
-      const updatedProgress = savesAPI.updatePlayerPosition(props.gameProgress, newFloor, playerPos.x, playerPos.y)
-      emit('game-progress-updated', updatedProgress)
-      addMessage(`${newFloor}階に移動しました。`)
+      loading.value = true
+      try {
+        const newFloor = localGameProgress.value.currentFloor + (adjacentStairs.value.isUp ? -1 : 1)
+        const playerPos = localGameProgress.value.playerPositions[newFloor]
+        
+        const updatedProgress = savesAPI.updatePlayerPosition(localGameProgress.value, newFloor, playerPos.x, playerPos.y)
+        await updateGameProgress(updatedProgress)
+        await addMessage(`${newFloor}階に移動しました。`)
+      } finally {
+        loading.value = false
+      }
     }
     
-    // 扉を開ける
-    const openDoor = () => {
+    // 扉を開ける（ローカル状態使用）
+    const openDoor = async () => {
       if (!adjacentDoor.value || adjacentDoor.value.isOpen || adjacentDoor.value.isLocked) return
       
-      const updatedProgress = savesAPI.updateDoorState(
-        props.gameProgress,
-        props.gameProgress.currentFloor,
-        adjacentDoor.value.x,
-        adjacentDoor.value.y,
-        true
-      )
-      
-      emit('game-progress-updated', updatedProgress)
-      addMessage('扉を開けました。')
+      loading.value = true
+      try {
+        const updatedProgress = savesAPI.updateDoorState(
+          localGameProgress.value,
+          localGameProgress.value.currentFloor,
+          adjacentDoor.value.x,
+          adjacentDoor.value.y,
+          true
+        )
+        
+        await updateGameProgress(updatedProgress)
+        await addMessage('扉を開けました。')
+      } finally {
+        loading.value = false
+      }
     }
     
-    // 鍵で扉を開ける
-    const unlockDoor = () => {
-      if (!adjacentDoor.value || adjacentDoor.value.isOpen || !adjacentDoor.value.isLocked || props.gameProgress.keys === 0) return
+    // 鍵で扉を開ける（ローカル状態使用）
+    const unlockDoor = async () => {
+      if (!adjacentDoor.value || adjacentDoor.value.isOpen || !adjacentDoor.value.isLocked || localGameProgress.value.keys === 0) return
       
-      let updatedProgress = savesAPI.updateDoorState(
-        props.gameProgress,
-        props.gameProgress.currentFloor,
-        adjacentDoor.value.x,
-        adjacentDoor.value.y,
-        true
-      )
-      
-      updatedProgress = savesAPI.updateItems(updatedProgress, undefined, props.gameProgress.keys - 1)
-      
-      emit('game-progress-updated', updatedProgress)
-      addMessage(`鍵を使って扉を開けました！残り${props.gameProgress.keys - 1}個`)
+      loading.value = true
+      try {
+        let updatedProgress = savesAPI.updateDoorState(
+          localGameProgress.value,
+          localGameProgress.value.currentFloor,
+          adjacentDoor.value.x,
+          adjacentDoor.value.y,
+          true
+        )
+        
+        updatedProgress = savesAPI.updateItems(updatedProgress, undefined, localGameProgress.value.keys - 1)
+        
+        await updateGameProgress(updatedProgress)
+        await addMessage(`鍵を使って扉を開けました！残り${localGameProgress.value.keys - 1}個`)
+      } finally {
+        loading.value = false
+      }
     }
     
-    // 宝箱を開ける
-    const openChest = () => {
+    // 宝箱を開ける（ローカル状態使用）
+    const openChest = async () => {
       if (!adjacentChest.value || adjacentChest.value.isOpened) return
       
-      let updatedProgress = savesAPI.updateChestState(
-        props.gameProgress,
-        props.gameProgress.currentFloor,
-        adjacentChest.value.x,
-        adjacentChest.value.y,
-        true
-      )
-      
-      const treasure = savesAPI.generateTreasure()
-      
-      if (treasure.type === 'key') {
-        updatedProgress = savesAPI.updateItems(updatedProgress, undefined, props.gameProgress.keys + 1)
-      } else if (treasure.type === 'potion') {
-        updatedProgress = savesAPI.updateItems(updatedProgress, props.gameProgress.potions + 1, undefined)
+      loading.value = true
+      try {
+        let updatedProgress = savesAPI.updateChestState(
+          localGameProgress.value,
+          localGameProgress.value.currentFloor,
+          adjacentChest.value.x,
+          adjacentChest.value.y,
+          true
+        )
+        
+        const treasure = savesAPI.generateTreasure()
+        
+        if (treasure.type === 'key') {
+          updatedProgress = savesAPI.updateItems(updatedProgress, undefined, localGameProgress.value.keys + 1)
+        } else if (treasure.type === 'potion') {
+          updatedProgress = savesAPI.updateItems(updatedProgress, localGameProgress.value.potions + 1, undefined)
+        }
+        
+        updatedProgress = savesAPI.addMessage(updatedProgress, '宝箱を開けました！')
+        updatedProgress = savesAPI.addMessage(updatedProgress, treasure.message)
+        
+        await updateGameProgress(updatedProgress)
+      } finally {
+        loading.value = false
       }
-      
-      updatedProgress = savesAPI.addMessage(updatedProgress, '宝箱を開けました！')
-      updatedProgress = savesAPI.addMessage(updatedProgress, treasure.message)
-      
-      emit('game-progress-updated', updatedProgress)
+    }
+    
+    // デバッグ用の検証関数
+    const isValidPositionDebug = (x, y) => {
+      try {
+        return isValidPosition(x, y)
+      } catch (error) {
+        console.error('Error in isValidPosition:', error)
+        return false
+      }
     }
     
     return {
       loading,
       error,
+      showDebugInfo,
+      localGameProgress,
       hpPercentage,
       canUsePotion,
       mapDisplay,
@@ -509,7 +623,8 @@ export default {
       useStairs,
       openDoor,
       unlockDoor,
-      openChest
+      openChest,
+      isValidPositionDebug
     }
   }
 }
@@ -776,6 +891,32 @@ export default {
   font-weight: bold;
 }
 
+/* デバッグパネル */
+.debug-panel {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  background-color: rgba(0, 0, 0, 0.9);
+  border: 1px solid #666;
+  border-radius: 5px;
+  padding: 10px;
+  font-size: 12px;
+  color: #888;
+  z-index: 1000;
+  max-width: 300px;
+}
+
+.debug-panel h4 {
+  color: #00ff00;
+  margin: 0 0 5px 0;
+  font-size: 14px;
+}
+
+.debug-panel div {
+  margin-bottom: 3px;
+  word-break: break-all;
+}
+
 /* レスポンシブ対応 */
 @media (max-width: 768px) {
   .dungeon-container {
@@ -791,6 +932,14 @@ export default {
   
   .message-log {
     height: 100px;
+  }
+  
+  .debug-panel {
+    position: relative;
+    bottom: auto;
+    left: auto;
+    margin-top: 20px;
+    max-width: 100%;
   }
 }
 </style>
